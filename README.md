@@ -9,7 +9,7 @@ In a nutshell, `qLDPC` provides methods to build a variety of built-in and custo
 - computing logical error rates in a code-capacity model,
 - constructing various circuits of interest, such as a quantum memory experiment for obtaining circuit-level logical error rates,
 - defining custom Pauli noise models,
-- plugging a decoder of choice into your workflow.
+- using a decoder of your choice for any of the above (or other, unlisted) tasks.
 
 See the [`examples`](https://github.com/qLDPCOrg/qLDPC/tree/main/examples) directory for some demonstrations and use-cases.
 
