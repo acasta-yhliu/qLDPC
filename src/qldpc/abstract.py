@@ -420,8 +420,6 @@ class Group:
         if from_magma:
             generators = external.groups.get_generators_from_magma(name)
         else:
-            if name == "SmallGroup(1,1)" or name == "Group(())":
-                return TrivialGroup()
             generators = external.groups.get_generators(
                 name, warning_to_raise_if_calling_gap=warning_to_raise_if_calling_gap
             )
