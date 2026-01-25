@@ -23,7 +23,7 @@ import stim
 from qldpc import codes
 from qldpc.objects import Node, Pauli, PauliXZ
 
-from .bookkeeping import DetectorRecord, MeasurementRecord, QubitIDs
+from .bookkeeping import DetectorRecord, MeasurementRecord, MemoryExperimentParts, QubitIDs
 from .common import get_encoding_circuit, restrict_to_qubits, with_remapped_qubits
 from .noise_model import DEFAULT_IMMUNE_OP_TAG, NoiseModel, as_noiseless_circuit
 from .syndrome_measurement import EdgeColoring, SyndromeMeasurementStrategy
@@ -179,7 +179,7 @@ def get_memory_experiment_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> MemoryExperimentParts:
     """Noiseless components of a memory experiment.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -225,7 +225,7 @@ def _get_basis_memory_experiment_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks logical operators of a fixed type (basis).
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -261,6 +261,7 @@ def _get_basis_memory_experiment_parts(
     measurement_record.append({data_id: [mm] for mm, data_id in enumerate(data_ids)})
 
     # detectors for stabilizers that can be inferred from data qubit measurements
+    readout.append("SHIFT_COORDS", [], (1, 0, 0))
     check_support = code.get_matrix(basis)
     for kk, check_id in enumerate(basis_check_ids):
         data_support = np.where(check_support[kk])[0]
@@ -268,7 +269,7 @@ def _get_basis_memory_experiment_parts(
             "DETECTOR",
             [measurement_record.get_target_rec(data_ids[qq]) for qq in data_support]
             + [measurement_record.get_target_rec(check_id)],
-            (num_rounds, 0, kk),
+            (0, 0, kk),
         )
     detector_record.append({check_id: [dd] for dd, check_id in enumerate(basis_check_ids)})
 
@@ -276,7 +277,7 @@ def _get_basis_memory_experiment_parts(
     targets = [measurement_record.get_target_rec(data_id) for data_id in data_ids]
     observables = get_observables(code, data_ids, basis=basis, on_measurements=targets)
 
-    return (
+    return MemoryExperimentParts(
         coordinates + state_prep,
         qec_cycle,
         readout + observables,
@@ -292,7 +293,7 @@ def _get_combined_memory_simulation_parts(
     *,
     qubit_ids: QubitIDs | None = None,
     syndrome_measurement_strategy: SyndromeMeasurementStrategy = EdgeColoring(),
-) -> tuple[stim.Circuit, stim.Circuit, stim.Circuit, MeasurementRecord, DetectorRecord, QubitIDs]:
+) -> MemoryExperimentParts:
     """Components of a memory experiment that tracks all logical operators.
 
     See help(qldpc.circuits.get_memory_experiment) for additional information.
@@ -326,19 +327,20 @@ def _get_combined_memory_simulation_parts(
         readout.append(stim.CircuitInstruction(f"MPP {joined_targets}"))
 
     # update the measurement record, add detectors, and update the detector record
+    readout.append("SHIFT_COORDS", [], (1, 0, 0))
     measurement_record.append({check_id: [mm] for mm, check_id in enumerate(check_ids)})
     for kk, check_id in enumerate(check_ids):
         targets = [
             measurement_record.get_target_rec(check_id, -1),
             measurement_record.get_target_rec(check_id, -2),
         ]
-        readout.append("DETECTOR", targets, (num_rounds, 0, kk))
+        readout.append("DETECTOR", targets, (0, 0, kk))
     detector_record.append({check_id: [dd] for dd, check_id in enumerate(check_ids)})
 
     # annotate all observables
     observables = get_observables(code, data_ids)
 
-    return (
+    return MemoryExperimentParts(
         coordinates + state_prep + observables,
         qec_cycle,
         readout + observables,
@@ -398,7 +400,10 @@ def get_observables(
     Returns:
         A Stim circuit of OBSERVABLE_INCLUDE instructions.
     """
-    assert basis is Pauli.X or basis is Pauli.Z or basis is None
+    if basis not in (None, Pauli.X, Pauli.Z):  # pragma: no cover
+        raise ValueError(
+            f"Provided basis must be Pauli.X or Pauli.Z (from qldpc.objects) or None, not {basis}"
+        )
 
     data_qubits = data_qubits or range(len(code))
     num_observables = code.dimension * (2 if basis is None else 1)
