@@ -209,23 +209,26 @@ class WrapCSS:
 
         return num_stabilizers, num_observables
 
-    def _syndrome_measurement(self, circuit: stim.Circuit, basis: Pauli, schedules: np.ndarray):
+    def _syndrome_measurement(
+        self,
+        circuit: stim.Circuit,
+        basis: Pauli,
+        schedules: np.ndarray,
+        qubit_ids: QubitIDs | None = None,
+    ):
         checks = self.checks(basis)
         zipped_schedule = zip(checks, schedules)
         sorted_schedule = sorted(zipped_schedule, key=lambda x: x[1])
 
         for _, checks in itertools.groupby(sorted_schedule, key=lambda ct: ct[1]):
             for chk, _ in checks:
-                if basis == Pauli.X:
-                    circuit.append("H", chk[1])
-                    circuit.append("TICK", [])
-                    circuit.append("CNOT", [chk[1], chk[0]])
-                    circuit.append("TICK", [])
-                    circuit.append("H", chk[1])
-                    circuit.append("TICK", [])
+                if qubit_ids:
+                    data, ancilla = qubit_ids.data[chk[0]], qubit_ids.check[chk[1] - self.num_qubits]
                 else:
-                    circuit.append("CNOT", [chk[0], chk[1]])
-                    circuit.append("TICK", [])
+                    data, ancilla = chk
+
+                circuit.append(f"C{basis}", [ancilla, data])
+                circuit.append("TICK", [])
 
     def evaluation_circuit(self, basis: Pauli, schedule: np.ndarray):
         oppsite_basis = Pauli.swap_xz(basis)
@@ -265,12 +268,12 @@ class WrapCSS:
 
     def measurement_circuit(self, x_ticks: np.ndarray, z_ticks: np.ndarray, qubit_ids: QubitIDs):
         circuit = stim.Circuit()
-        circuit.append("RZ", qubit_ids.check)
+        circuit.append("RX", qubit_ids.check)
 
-        self._syndrome_measurement(circuit, Pauli.X, x_ticks)
-        self._syndrome_measurement(circuit, Pauli.Z, z_ticks)
+        self._syndrome_measurement(circuit, Pauli.X, x_ticks, qubit_ids)
+        self._syndrome_measurement(circuit, Pauli.Z, z_ticks, qubit_ids)
 
-        circuit.append("MZ", qubit_ids.check)
+        circuit.append("MX", qubit_ids.check)
         measurement_record = MeasurementRecord(
             {qubit: [mm] for mm, qubit in enumerate(qubit_ids.check)}
         )
