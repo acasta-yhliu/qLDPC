@@ -345,9 +345,8 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
     def _schedule_step(
         self, root: TreeNode, basis: Pauli, code: WrapCSS, checks: list[tuple[int, int]]
     ):
-        print("scheduling single step")
         iterations = max(0, self.iters_per_step - root.visits)
-        for _ in tqdm.tqdm(range(iterations)):
+        for _ in range(iterations):
             node = root
 
             while not node.is_terminal() and node.is_fully_expanded():
