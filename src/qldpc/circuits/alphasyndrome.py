@@ -21,11 +21,11 @@ import itertools
 import math
 import random
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import sinter
 import stim
-import tqdm
 
 from qldpc import codes
 from qldpc.circuits.syndrome_measurement import SyndromeMeasurementStrategy
@@ -42,10 +42,10 @@ class TreeState:
     maxticks: np.ndarray
 
     @staticmethod
-    def initial_state(nchecks: int, nqubits: int):
+    def initial_state(nchecks: int, nqubits: int) -> "TreeState":
         return TreeState(np.repeat(-1, nchecks), np.repeat(-1, nqubits))
 
-    def shift(self, checks: list[tuple[int, int]], meas_index: int):
+    def shift(self, checks: list[tuple[int, int]], meas_index: int) -> "TreeState":
         chk = checks[meas_index]
         new_tick = max(self.maxticks[chk[0]], self.maxticks[chk[1]]) + 1
 
@@ -81,48 +81,42 @@ class TreeNode:
 
         self.unvisited = state.transitions()
 
-    def is_fully_expanded(self):
+    def is_fully_expanded(self) -> bool:
         return len(self.unvisited) == 0
 
-    def is_terminal(self):
+    def is_terminal(self) -> bool:
         return self.state.is_terminal()
 
-    def expand(self, checks: list[tuple[int, int]]):
+    def expand(self, checks: list[tuple[int, int]]) -> "TreeNode":
         next_state = self.state.shift(checks, self.unvisited.pop())
         child_node = TreeNode(next_state, parent=self)
         self.children.append(child_node)
         return child_node
 
-    def best_child(self, exploration_weight=1.4):
-        def ucb_score(child):
+    def best_child(self, exploration_weight: float = 1.4) -> "TreeNode":
+        def ucb_score(child: "TreeNode") -> float:
             if child.visits == 0:
-                return float("inf")
+                return float("inf")  # pragma: no cover
             return child.value / child.visits + exploration_weight * math.sqrt(
                 math.log(self.visits) / child.visits
             )
 
         return max(self.children, key=ucb_score)
 
-    def backpropagate(self, result):
+    def backpropagate(self, result: float) -> None:
         self.visits += 1
         self.value += result
         if self.parent:
             self.parent.backpropagate(result)
 
-    def simulate_schedule(self, checks: list[tuple[int, int]]):
+    def simulate_schedule(self, checks: list[tuple[int, int]]) -> np.ndarray:
         current_state = self.state
         while not current_state.is_terminal():
             current_state = current_state.shift(checks, random.choice(current_state.transitions()))
         return current_state.schedule
 
-    def root(self):
-        if self.parent is None:
-            return self
-        else:
-            return self.parent.root()
 
-
-def measure_as_product(circuit, pauli_targets):
+def measure_as_product(circuit: stim.Circuit, pauli_targets: list[stim.GateTarget]) -> None:
     combined_targets = []
     for i, target in enumerate(pauli_targets):
         combined_targets.append(target)
@@ -134,7 +128,7 @@ def measure_as_product(circuit, pauli_targets):
 
 
 class WrapCSS:
-    def __init__(self, code: codes.CSSCode, subgraph_kwargs) -> None:
+    def __init__(self, code: codes.CSSCode, subgraph_kwargs: Any) -> None:
         syndrome_graphs = code.get_syndrome_subgraphs(**subgraph_kwargs)
 
         self.code = code
@@ -145,33 +139,33 @@ class WrapCSS:
         for subgraph in syndrome_graphs:
             for edge in subgraph.edges:
                 data_node, check_node = sorted(edge)
-                pauli = subgraph[check_node][data_node][Pauli]  # type: ignore
+                pauli: Pauli = subgraph[check_node][data_node][Pauli]
                 if pauli == Pauli.X:
                     self.x_checks.append((data_node.index, check_node.index + self.num_qubits))
                 elif pauli == Pauli.Z:
                     self.z_checks.append((data_node.index, check_node.index + self.num_qubits))
                 else:
-                    assert False, "Unknown Pauli check for CSS code"
+                    assert False, "Unknown Pauli check for CSS code"  # pragma: no cover
 
         self.all_checks = self.x_checks + self.z_checks
 
-    def checks(self, basis: Pauli):
+    def checks(self, basis: Pauli) -> list[tuple[int, int]]:
         if basis == Pauli.X:
             return self.x_checks
         elif basis == Pauli.Z:
             return self.z_checks
         else:
-            assert False, "Unknown Pauli check for CSS code"
+            assert False, "Unknown Pauli check for CSS code"  # pragma: no cover
 
     @property
-    def num_qubits(self):
+    def num_qubits(self) -> int:
         return self.code.num_qubits
 
     @property
-    def num_ancillas(self):
+    def num_ancillas(self) -> int:
         return self.code.num_checks
 
-    def _measure_observable(self, circuit: stim.Circuit, basis: PauliXZ):
+    def _measure_observable(self, circuit: stim.Circuit, basis: PauliXZ) -> int:
         num_observables = self.code.dimension
         logical_ops = self.code.get_logical_ops(basis, symplectic=True)
         logical_op_graph = codes.QuditCode.matrix_to_graph(logical_ops)
@@ -187,7 +181,7 @@ class WrapCSS:
 
         return self.code.dimension
 
-    def _measure_stabilizers(self, circuit: stim.Circuit, basis: PauliXZ):
+    def _measure_stabilizers(self, circuit: stim.Circuit, basis: PauliXZ) -> int:
         num_stabilizers = self.code.num_checks_x if basis == Pauli.X else self.code.num_checks_z
         stabilizer_ops = self.code.get_stabilizer_ops(basis, symplectic=True)
         stabilizer_op_graph = codes.QuditCode.matrix_to_graph(stabilizer_ops)
@@ -203,7 +197,7 @@ class WrapCSS:
 
         return num_stabilizers
 
-    def _ideal_measurement(self, circuit: stim.Circuit, basis: PauliXZ):
+    def _ideal_measurement(self, circuit: stim.Circuit, basis: PauliXZ) -> tuple[int, int]:
         num_stabilizers = self._measure_stabilizers(circuit, basis)
         num_observables = self._measure_observable(circuit, basis)
 
@@ -215,22 +209,25 @@ class WrapCSS:
         basis: Pauli,
         schedules: np.ndarray,
         qubit_ids: QubitIDs | None = None,
-    ):
-        checks = self.checks(basis)
-        zipped_schedule = zip(checks, schedules)
+    ) -> None:
+        checks_of_basis = self.checks(basis)
+        zipped_schedule = zip(checks_of_basis, schedules)
         sorted_schedule = sorted(zipped_schedule, key=lambda x: x[1])
 
         for _, checks in itertools.groupby(sorted_schedule, key=lambda ct: ct[1]):
             for chk, _ in checks:
                 if qubit_ids:
-                    data, ancilla = qubit_ids.data[chk[0]], qubit_ids.check[chk[1] - self.num_qubits]
+                    data, ancilla = (
+                        qubit_ids.data[chk[0]],
+                        qubit_ids.check[chk[1] - self.num_qubits],
+                    )
                 else:
                     data, ancilla = chk
 
                 circuit.append(f"C{basis}", [ancilla, data])
                 circuit.append("TICK", [])
 
-    def evaluation_circuit(self, basis: Pauli, schedule: np.ndarray):
+    def evaluation_circuit(self, basis: Pauli, schedule: np.ndarray) -> stim.Circuit:
         oppsite_basis = Pauli.swap_xz(basis)
 
         circuit = stim.Circuit()
@@ -266,7 +263,9 @@ class WrapCSS:
 
         return circuit
 
-    def measurement_circuit(self, x_ticks: np.ndarray, z_ticks: np.ndarray, qubit_ids: QubitIDs):
+    def measurement_circuit(
+        self, x_ticks: np.ndarray, z_ticks: np.ndarray, qubit_ids: QubitIDs
+    ) -> tuple[stim.Circuit, MeasurementRecord]:
         circuit = stim.Circuit()
         circuit.append("RX", qubit_ids.check)
 
@@ -293,10 +292,10 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
         self,
         noise_model: NoiseModel,
         decoder: str,
-        custome_decoders=None,
+        custome_decoders: dict[str, sinter.Decoder] | None = None,
         iters_per_step: int = 8000,
         shots_per_iter: int = 10000,
-        **subgraph_kwargs,
+        **subgraph_kwargs: Any,
     ) -> None:
         """Initialize an EdgeColoringXZ syndrome measurement strategy.
 
@@ -347,7 +346,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
     def _schedule_step(
         self, root: TreeNode, basis: Pauli, code: WrapCSS, checks: list[tuple[int, int]]
-    ):
+    ) -> TreeNode:
         iterations = max(0, self.iters_per_step - root.visits)
         for _ in range(iterations):
             node = root
@@ -384,7 +383,7 @@ class AlphaSyndrome(SyndromeMeasurementStrategy):
 
         return root.best_child(exploration_weight=0)
 
-    def _schedule_check_basis(self, basis: Pauli, code: WrapCSS):
+    def _schedule_check_basis(self, basis: Pauli, code: WrapCSS) -> np.ndarray:
         checks = code.checks(basis)
 
         node = TreeNode(TreeState.initial_state(len(checks), code.num_qubits + code.num_ancillas))

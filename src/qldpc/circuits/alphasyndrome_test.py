@@ -27,7 +27,9 @@ from qldpc.objects import Pauli
 
 
 class TrivialDecoder(sinter.Decoder):
-    def compile_decoder_for_dem(self, *, dem: "stim.DetectorErrorModel"):
+    def compile_decoder_for_dem(
+        self, *, dem: "stim.DetectorErrorModel"
+    ) -> "TrivialCompiledDecoder":
         return TrivialCompiledDecoder(shape=(dem.num_observables + 7) // 8)
 
 
@@ -40,8 +42,6 @@ class TrivialCompiledDecoder(sinter.CompiledDecoder):
         *,
         bit_packed_detection_event_data: np.ndarray,
     ) -> np.ndarray:
-        print("shots is", bit_packed_detection_event_data.shape[0])
-
         return np.zeros(
             shape=(bit_packed_detection_event_data.shape[0], self.shape), dtype=np.uint8
         )
@@ -65,7 +65,13 @@ def test_alpha_syndrome(pytestconfig: pytest.Config) -> None:
 
     # EdgeColoringXZ strategy
     with pytest.raises(ValueError, match="only supports CSS codes"):
-        circuits.EdgeColoringXZ().get_circuit(codes.FiveQubitCode())
+        circuits.AlphaSyndrome(
+            circuits.DepolarizingNoiseModel(0.001),
+            "trivial",
+            iters_per_step=2,
+            shots_per_iter=5,
+            custome_decoders={"trivial": TrivialDecoder()},
+        ).get_circuit(codes.FiveQubitCode())
 
 
 def assert_valid_alphasyndrome(
@@ -74,7 +80,7 @@ def assert_valid_alphasyndrome(
     strategy = circuits.AlphaSyndrome(
         circuits.DepolarizingNoiseModel(0.001),
         "trivial",
-        iters_per_step=2,
+        iters_per_step=5,
         shots_per_iter=5,
         custome_decoders={"trivial": TrivialDecoder()},
     )
